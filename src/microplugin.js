@@ -14,7 +14,7 @@
  * @author Brian Reavis <brian@thirdroute.com>
  */
 
-(function(root, factory) {
+(function (root, factory) {
 	if (typeof define === 'function' && define.amd) {
 		define(factory);
 	} else if (typeof exports === 'object') {
@@ -22,10 +22,10 @@
 	} else {
 		root.MicroPlugin = factory();
 	}
-}(this, function() {
+}(this, function () {
 	var MicroPlugin = {};
 
-	MicroPlugin.mixin = function(Interface) {
+	MicroPlugin.mixin = function (Interface) {
 		Interface.plugins = {};
 
 		/**
@@ -43,16 +43,16 @@
 		 *
 		 * @param {mixed} plugins
 		 */
-		Interface.prototype.initializePlugins = function(plugins) {
+		Interface.prototype.initializePlugins = function (plugins, cb) {
 			var i, n, key;
-			var self  = this;
+			var self = this;
 			var queue = [];
 
 			self.plugins = {
-				names     : [],
-				settings  : {},
-				requested : {},
-				loaded    : {}
+				names: [],
+				settings: {},
+				requested: {},
+				loaded: {}
 			};
 
 			if (utils.isArray(plugins)) {
@@ -73,23 +73,46 @@
 				}
 			}
 
-			while (queue.length) {
-				self.require(queue.shift());
+			var load = function (index) {
+				const plugin = queue[index];
+				// load done callback
+				var loadDone = function () {
+					// Load next plugin
+					load(index + 1);
+				}
+				if (plugin) {
+					// If plugin is defined then load
+					self.require(plugin, loadDone);
+				} else {
+					// otherwise, run done callback
+					if (cb)
+						cb();
+				}
 			}
+
+			// Start to load first plugin
+			load(0);
+
+			// while (queue.length) {
+			// 	self.require(queue.shift());
+			// }
 		};
 
-		Interface.prototype.loadPlugin = function(name) {
-			var self    = this;
+		Interface.prototype.loadPlugin = function (name, done) {
+			var self = this;
 			var plugins = self.plugins;
-			var plugin  = Interface.plugins[name];
+			var plugin = Interface.plugins[name];
 
 			if (!Interface.plugins.hasOwnProperty(name)) {
-				throw new Error('Unable to find "' +  name + '" plugin');
+				throw new Error('Unable to find "' + name + '" plugin');
 			}
 
 			plugins.requested[name] = true;
-			plugins.loaded[name] = plugin.fn.apply(self, [self.plugins.settings[name] || {}]);
-			plugins.names.push(name);
+			plugins.loaded[name] = plugin.fn(self, self.plugins.settings[name] || {}, function () {
+				plugins.names.push(name);
+				if (done)
+					done();
+			});
 		};
 
 		/**
@@ -97,18 +120,25 @@
 		 *
 		 * @param {string} name
 		 */
-		Interface.prototype.require = function(name) {
+		Interface.prototype.require = function (name, done) {
 			var self = this;
 			var plugins = self.plugins;
 
-			if (!self.plugins.loaded.hasOwnProperty(name)) {
-				if (plugins.requested[name]) {
-					throw new Error('Plugin has circular dependency ("' + name + '")');
-				}
-				self.loadPlugin(name);
+			var loadDone = function () {
+				if (done)
+					done(plugins.loaded[name]);
 			}
 
-			return plugins.loaded[name];
+			if (!self.plugins.loaded.hasOwnProperty(name)) {
+				if (plugins.requested[name]) {
+					console.info('Plugin "' + name + '" has already been loaded!')
+					loadDone();
+				} else {
+					self.loadPlugin(name, loadDone);
+				}
+			} else {
+				loadDone();
+			}
 		};
 
 		/**
@@ -117,16 +147,16 @@
 		 * @param {string} name
 		 * @param {function} fn
 		 */
-		Interface.define = function(name, fn) {
+		Interface.define = function (name, fn) {
 			Interface.plugins[name] = {
-				'name' : name,
-				'fn'   : fn
+				'name': name,
+				'fn': fn
 			};
 		};
 	};
 
 	var utils = {
-		isArray: Array.isArray || function(vArg) {
+		isArray: Array.isArray || function (vArg) {
 			return Object.prototype.toString.call(vArg) === '[object Array]';
 		}
 	};
